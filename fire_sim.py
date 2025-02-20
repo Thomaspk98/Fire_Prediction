@@ -7,7 +7,7 @@ WIDTH, HEIGHT = 600, 400
 GRID_SIZE = 5  # Defines the resolution of the fire simulation
 FIRE_SPREAD_PROB = 0.2  # Base probability of fire spreading
 WIND_DIRECTIONS = {'N': (0, -1), 'S': (0, 1), 'W': (-1, 0), 'E': (1, 0)}
-WIND_DIRECTION = 'E'  # Default wind direction
+WIND_DIRECTION = 'W'  # Default wind direction
 WIND_STRENGTH = 0.6  # Increases spread probability in wind direction
 
 # Load and scale the image
@@ -19,10 +19,6 @@ image = pygame.transform.scale(image, (WIDTH, HEIGHT))
 grid_width = WIDTH // GRID_SIZE
 grid_height = HEIGHT // GRID_SIZE
 fire_grid = np.zeros((grid_height, grid_width), dtype=int)  # 0: Unburnt, 1: Burning, 2: Burnt
-
-# Ignite fire at a random point
-start_x, start_y = grid_width // 2, grid_height // 2
-fire_grid[start_y, start_x] = 1
 
 def spread_fire(grid):
     new_grid = grid.copy()
@@ -81,6 +77,20 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+    
+    # Handle mouse input for igniting fire (NEW CODE)
+    if pygame.mouse.get_pressed()[0]:  # Left mouse button held down
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        grid_x = mouse_x // GRID_SIZE
+        grid_y = mouse_y // GRID_SIZE
+        
+        # Ignite a 3x3 area around the cursor
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                new_x = grid_x + dx
+                new_y = grid_y + dy
+                if 0 <= new_x < grid_width and 0 <= new_y < grid_height:
+                    fire_grid[new_y, new_x] = 1
     
     fire_grid = spread_fire(fire_grid)  # Update the fire grid
     draw_fire(screen, fire_grid, image)  # Draw fire over the background image with transparency
