@@ -32,59 +32,57 @@ IGNITION_POINT = (rows // 2, cols // 2)
 screen = pygame.display.set_mode((width, height))
 pygame.display.set_caption("Fire Spread Simulation")
 
-# Store original image colors (prevents modification issues)
-original_grid = [[image.get_at((col * GRID_SIZE, row * GRID_SIZE)) for col in range(cols)] for row in range(rows)]
-grid = [[original_grid[row][col] for col in range(cols)] for row in range(rows)]
-
-# Fire management
+# Grid initialization
+grid = [[image.get_at((col * GRID_SIZE, row * GRID_SIZE)) for col in range(cols)] for row in range(rows)]
 fire_queue = collections.deque()
 visited = set()
-remaining_green = set()  # Track all green pixels
 
 # Function to check if a pixel is green
 def is_green(pixel):
     r, g, b, *_ = pixel  # Unpack RGBA
-    return g > GREEN_THRESHOLD and g > r * GREEN_DOMINANCE_RATIO and g > b * GREEN_DOMINANCE_RATIO
+    
+    # Check if the green component is dominant
+    green_dominant = g > GREEN_THRESHOLD and g > r * GREEN_DOMINANCE_RATIO and g > b * GREEN_DOMINANCE_RATIO
+    
+    # Allow detection of various green shades
+    green_shade = (g > r) and (g > b) and (r < 150 and b < 150)  # Avoid bright reds and blues
+    
+    return green_dominant or green_shade
 
-# Identify all green areas and initialize fire at the ignition point
-for row in range(rows):
-    for col in range(cols):
-        if is_green(original_grid[row][col]):
-            remaining_green.add((row, col))
+# Function to check if a pixel has enough green neighbors
+def has_green_neighbors(row, col):
+    """Check if at least 5 out of 8 surrounding pixels are also green."""
+    green_count = 0
+    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]:
+        nr, nc = row + dr, col + dc
+        if 0 <= nr < rows and 0 <= nc < cols and is_green(grid[nr][nc]):
+            green_count += 1
+    return green_count >= 5  # At least 5 out of 8 neighbors should be green
 
-if is_green(original_grid[IGNITION_POINT[0]][IGNITION_POINT[1]]):
+# Initialize fire at the ignition point if it's green and has enough green neighbors
+if is_green(grid[IGNITION_POINT[0]][IGNITION_POINT[1]]) and has_green_neighbors(*IGNITION_POINT):
     fire_queue.append(IGNITION_POINT)
     visited.add(IGNITION_POINT)
     grid[IGNITION_POINT[0]][IGNITION_POINT[1]] = FIRE_COLOR
-    remaining_green.discard(IGNITION_POINT)  # Remove from remaining greens
 
 # Fire spread function
 def spread_fire():
     global fire_queue
-
     next_fire_queue = collections.deque()
+    
     while fire_queue:
         row, col = fire_queue.popleft()
-        grid[row][col] = BURNED_COLOR  # Mark as burned
+        grid[row][col] = BURNED_COLOR  # Convert burned pixels to black
 
-        # Spread fire in 8 directions
+        # Spread fire in 8 directions (includes diagonals for full coverage)
         for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]:
             nr, nc = row + dr, col + dc
-            if 0 <= nr < rows and 0 <= nc < cols and (nr, nc) not in visited:
-                if (nr, nc) in remaining_green:  # Burn only green areas
-                    next_fire_queue.append((nr, nc))
-                    grid[nr][nc] = FIRE_COLOR
-                    visited.add((nr, nc))
-                    remaining_green.discard((nr, nc))  # Remove from remaining green set
+            if 0 <= nr < rows and 0 <= nc < cols and is_green(grid[nr][nc]) and has_green_neighbors(nr, nc) and (nr, nc) not in visited:
+                next_fire_queue.append((nr, nc))
+                grid[nr][nc] = FIRE_COLOR  # Mark as burning
+                visited.add((nr, nc))
 
-    fire_queue = next_fire_queue
-
-    # If no fire remains but green exists, ignite a new isolated green area
-    if not fire_queue and remaining_green:
-        new_ignition = remaining_green.pop()  # Pick any green pixel
-        fire_queue.append(new_ignition)
-        visited.add(new_ignition)
-        grid[new_ignition[0]][new_ignition[1]] = FIRE_COLOR
+    fire_queue = next_fire_queue  # Update burning cells
 
 # Main loop
 running = True
@@ -105,7 +103,7 @@ while running:
                 color = FIRE_COLOR  # Fire is visible while spreading
             elif grid[row][col] == BURNED_COLOR:
                 color = BURNED_COLOR
-            elif (row, col) in remaining_green:
+            elif is_green(grid[row][col]) and has_green_neighbors(row, col):
                 color = GREEN_COLOR  # Still green but not burning yet
             else:
                 color = BLUE_COLOR  # Non-green pixels as blue
@@ -114,7 +112,7 @@ while running:
             pygame.draw.rect(screen, GRID_LINE_COLOR, (col * GRID_SIZE, row * GRID_SIZE, GRID_SIZE, GRID_SIZE), 1)
 
     pygame.display.flip()
-    pygame.time.delay(100)  # Control fire speed
+    pygame.time.delay(150)  # Faster fire spread for better visibility
 
 pygame.quit()
 sys.exit()
