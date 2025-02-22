@@ -1,140 +1,155 @@
 import pygame
-import numpy as np
-import random
-import tkinter as tk
-from tkinter import filedialog, messagebox
 import sys
+import collections
+import random
 
 # Constants
-WIDTH, HEIGHT = 600, 400
-GRID_SIZE = 5
-FIRE_SPREAD_PROB = 0.2
-WIND_DIRECTIONS = {'N': (0, -1), 'S': (0, 1), 'W': (-1, 0), 'E': (1, 0)}
-WIND_DIRECTION = 'E'
-WIND_STRENGTH = 0.6
+GRID_SIZE = 5  
+GREEN_THRESHOLD = 80  
+GREEN_DOMINANCE_RATIO = 1.2  
+GRID_LINE_COLOR = (240, 240, 240, 80)  # Very light gray with slight transparency
+FIRE_COLOR = (255, 0, 0, 150)  # Red fire with transparency (alpha 150)
+BURNED_COLOR = (0, 0, 0, 180)  # Black with transparency (alpha 180)
 
-# Initialize Pygame
+# Initialize pygame
 pygame.init()
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+
+# Load the image
+image_path = "upload-image11.jpg"  # Change to your image path
+image = pygame.image.load(image_path)
+image = pygame.transform.scale(image, (image.get_width() // GRID_SIZE * GRID_SIZE, 
+                                       image.get_height() // GRID_SIZE * GRID_SIZE))
+
+# Get image dimensions
+width, height = image.get_size()
+cols, rows = width // GRID_SIZE, height // GRID_SIZE
+
+# Compute the ignition point at the center of the image
+IGNITION_POINT = (rows // 2, cols // 2)
+
+# Create the pygame window
+screen = pygame.display.set_mode((width, height))
 pygame.display.set_caption("Fire Spread Simulation")
-font = pygame.font.Font(None, 36)
 
-def upload_image():
-    root = tk.Tk()
-    root.withdraw()
-    file_path = filedialog.askopenfilename(
-        title="Select an image",
-        filetypes=[("Image files", "*.jpg;*.jpeg;*.png;*.bmp")]
-    )
-    root.destroy()
-    
-    if file_path:
-        try:
-            img = pygame.image.load(file_path)
-            return pygame.transform.scale(img, (WIDTH, HEIGHT))
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load image: {str(e)}")
-    return None
+# Grid initialization (using original image pixels)
+grid = [[image.get_at((col * GRID_SIZE, row * GRID_SIZE)) for col in range(cols)] for row in range(rows)]
+fire_queue = collections.deque()
+visited = set()
 
-def draw_button(screen, msg):
-    button_width = 200
-    button_height = 50
-    button_x = (WIDTH - button_width) // 2
-    button_y = (HEIGHT - button_height) // 2
+# Function to check if a pixel is green
+def is_green(pixel):
+    r, g, b = pixel[:3]  # Extract RGB values
     
-    pygame.draw.rect(screen, (0, 128, 0), (button_x, button_y, button_width, button_height))
-    text = font.render(msg, True, (255, 255, 255))
-    text_rect = text.get_rect(center=(button_x + button_width//2, button_y + button_height//2))
-    screen.blit(text, text_rect)
-    
-    return pygame.Rect(button_x, button_y, button_width, button_height)
+    # Define the detected green range
+    MIN_GREEN = (0, 1, 0)
+    MAX_GREEN = (150, 150, 150)
 
-# Initial upload screen
-image = None
-uploaded = False
-button_rect = None
+   # Define additional conditions to exclude light grey shades
+    brightness = (r + g + b) / 3  # Average brightness
+    is_greyish = abs(r - g) < 20 and abs(g - b) < 20 and abs(r - b) < 20
 
-while not uploaded:
-    screen.fill((255, 255, 255))
-    button_rect = draw_button(screen, "Upload Image")
     
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if button_rect.collidepoint(event.pos):
-                image = upload_image()
-                if image:
-                    screen.fill((255, 255, 255))
-                    text = font.render("Image uploaded successfully!", True, (0, 128, 0))
-                    text_rect = text.get_rect(center=(WIDTH//2, HEIGHT//2))
-                    screen.blit(text, text_rect)
-                    pygame.display.flip()
-                    pygame.time.delay(2000)
-                    uploaded = True
+    # Check if the pixel is within the green range
+    in_range = all(MIN_GREEN[i] <= pixel[i] <= MAX_GREEN[i] for i in range(3))
     
-    pygame.display.flip()
+    return in_range and not is_greyish
 
-# Fire simulation initialization
-grid_width = WIDTH // GRID_SIZE
-grid_height = HEIGHT // GRID_SIZE
-fire_grid = np.zeros((grid_height, grid_width), dtype=int)
 
-def spread_fire(grid):
-    new_grid = grid.copy()
-    dx, dy = WIND_DIRECTIONS[WIND_DIRECTION]
-    
-    for y in range(1, grid.shape[0] - 1):
-        for x in range(1, grid.shape[1] - 1):
-            if grid[y, x] == 1:
-                new_grid[y, x] = 2
-                
-                for sy in [-1, 0, 1]:
-                    for sx in [-1, 0, 1]:
-                        if (sx, sy) != (0, 0) and grid[y + sy, x + sx] == 0:
-                            prob = FIRE_SPREAD_PROB
-                            if (sx, sy) == (dx, dy):
-                                prob += WIND_STRENGTH
-                            if random.random() < prob:
-                                new_grid[y + sy, x + sx] = 1
-    return new_grid
+# Initialize fire at the ignition point if it's green
+if is_green(grid[IGNITION_POINT[0]][IGNITION_POINT[1]]):
+    fire_queue.append(IGNITION_POINT)
+    visited.add(IGNITION_POINT)
+    grid[IGNITION_POINT[0]][IGNITION_POINT[1]] = FIRE_COLOR
 
-def draw_fire(screen, grid, image):
-    fire_overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-    
-    for y in range(grid.shape[0]):
-        for x in range(grid.shape[1]):
-            if grid[y, x] == 1:
-                fire_overlay.fill((255, 0, 0, 150), rect=(x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE))
-            elif grid[y, x] == 2:
-                fire_overlay.fill((0, 0, 0, 200), rect=(x * GRID_SIZE, y * GRID_SIZE, GRID_SIZE, GRID_SIZE))
-    
-    screen.blit(image, (0, 0))  
-    screen.blit(fire_overlay, (0, 0))
-    pygame.draw.rect(screen, (0, 0, 0), (0, 0, WIDTH, HEIGHT), 5)
 
+
+import random
+
+# Define wind direction (Change as needed: "N", "S", "E", "W")
+WIND_DIRECTION = "E"  # Example: Fire moves stronger downward
+
+# Fire spread pattern (always includes immediate neighbors)
+base_spread_pattern = [
+    (-1, 0), (1, 0), (0, -1), (0, 1)  # Immediate neighbors
+]
+
+# Define wind-based priority movement for the second layer
+wind_spread_patterns = {
+    "N": [(-1, 0), (-2, 0), (-1, -1), (-1, 1)],  # Stronger upward
+    "S": [(1, 0), (2, 0), (1, -1), (1, 1)],  # Stronger downward
+    "E": [(0, 1), (0, 2), (-1, 1), (1, 1)],  # Stronger rightward
+    "W": [(0, -1), (0, -2), (-1, -1), (1, -1)]  # Stronger leftward
+}
+
+# Fire spread function with wind influence
+def spread_fire():
+    global fire_queue
+    next_fire_queue = collections.deque()
+    
+    while fire_queue:
+        row, col = fire_queue.popleft()
+        grid[row][col] = BURNED_COLOR  # Mark as burned
+
+        # Get the wind-prioritized spread pattern
+        wind_priority_spread = wind_spread_patterns[WIND_DIRECTION]
+
+        # Final spread pattern: Immediate neighbors + wind-prioritized + random outer layer
+        spread_directions = (
+            base_spread_pattern + 
+            wind_priority_spread + 
+            random.sample(base_spread_pattern + wind_priority_spread, len(base_spread_pattern) // 2)  # Some randomness
+        )
+
+        for dr, dc in spread_directions:
+            nr, nc = row + dr, col + dc
+            if 0 <= nr < rows and 0 <= nc < cols and is_green(grid[nr][nc]) and (nr, nc) not in visited:
+                # Fire has a higher chance to spread in the wind direction
+                if random.random() < (0.5 if (dr, dc) in wind_priority_spread else 0.5):  
+                    next_fire_queue.append((nr, nc))
+                    grid[nr][nc] = FIRE_COLOR  # Mark as burning
+                    visited.add((nr, nc))
+
+    fire_queue = next_fire_queue  # Update burning cells
+
+
+
+
+
+# Create a transparent surface for the grid
+grid_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+grid_surface.set_alpha(50)  # Adjust transparency (lower = more transparent)
+
+# Draw subtle grid lines
+for row in range(rows):
+    for col in range(cols):
+        pygame.draw.rect(grid_surface, GRID_LINE_COLOR, (col * GRID_SIZE, row * GRID_SIZE, GRID_SIZE, GRID_SIZE), 1)
+
+# Main loop
 running = True
 while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
 
-    if pygame.mouse.get_pressed()[0]:
-        mouse_x, mouse_y = pygame.mouse.get_pos()
-        grid_x = mouse_x // GRID_SIZE
-        grid_y = mouse_y // GRID_SIZE
-        
-        for dy in range(-1, 2):
-            for dx in range(-1, 2):
-                new_x = grid_x + dx
-                new_y = grid_y + dy
-                if 0 <= new_x < grid_width and 0 <= new_y < grid_height:
-                    fire_grid[new_y, new_x] = 1
+    screen.blit(image, (0, 0))  # Always draw background first
+    screen.blit(grid_surface, (0, 0))  # Overlay subtle grid lines
 
-    fire_grid = spread_fire(fire_grid)
-    draw_fire(screen, fire_grid, image)
+    # Spread fire continuously until all green pixels are burned
+    if fire_queue:
+        spread_fire()
+
+    fire_surface = pygame.Surface((width, height), pygame.SRCALPHA)  # Transparent surface for fire
+
+    for row in range(rows):
+        for col in range(cols):
+            if grid[row][col] == FIRE_COLOR:
+                pygame.draw.rect(fire_surface, FIRE_COLOR, (col * GRID_SIZE, row * GRID_SIZE, GRID_SIZE, GRID_SIZE))
+            elif grid[row][col] == BURNED_COLOR:
+                pygame.draw.rect(fire_surface, BURNED_COLOR, (col * GRID_SIZE, row * GRID_SIZE, GRID_SIZE, GRID_SIZE))
+
+    screen.blit(fire_surface, (0, 0))  # Overlay fire and burned areas
     pygame.display.flip()
-    pygame.time.delay(100)
+    pygame.time.delay(300)
 
 pygame.quit()
+sys.exit()
